@@ -21,7 +21,8 @@
 #define NUM_TLB_TABLE_ENTRY         16
 #define BACKING_STORE_SIZE          ((unsigned int)(0x10000))
 
-static unsigned int current_frame_number;
+static unsigned int page_fault = 0;
+static unsigned int current_frame_number = 0;
 static int logical_addresses_size = 1;
 static unsigned int *logical_addresses;
 static unsigned int *page_table;
@@ -32,9 +33,9 @@ void read_logical_addresses(const char *filename, int *const size,unsigned int *
 unsigned int get_page_number(int bin_val);
 unsigned int get_offset(int bin_val);
 unsigned int *init_page_table(unsigned int * const tbl);
-int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table);
+int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table, unsigned int *curr_frm_num);
 void write_to_physical_memory(unsigned char *buff, unsigned int offset, unsigned char * const mem);
-void update_current_frame_num();
+void update_current_frame_num(unsigned int *curr_frm_num);
 void update_page_table(unsigned int page_num, int frame_num, unsigned int * const page_table);
 unsigned int get_frame_address_from_page_table(unsigned int page_num, const unsigned int * const page_table);
 unsigned int consult_page_table(unsigned int page_num, bool *is_valid, const unsigned int * const page_table);
@@ -58,31 +59,31 @@ int main(int argc, char **argv)
 
     // printf("%d, %d\n", get_page_number(logical_addresses[0]), get_offset(logical_addresses[0]));
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < logical_addresses_size; i++)
     {
         unsigned int page_n = get_page_number(logical_addresses[i]);
         unsigned int offset = get_offset(logical_addresses[i]);
-        printf("Logical address = %u, page number = %u, offset = %u, ", logical_addresses[i], page_n, offset);
+        printf("Virtual address = %*u, page number = %*u, offset = %*u, ", 4, logical_addresses[i], 4, page_n, 4, offset);
         bool is_valid;
         unsigned int frame_addr;
         frame_addr = consult_page_table(page_n, &is_valid, page_table);
         if (is_valid == false)
         {
-            printf("Page fault occured, reading page num %d from backing store\n", page_n);
-            swap_in(page_n, physical_memory, page_table);
+            page_fault++;
+            swap_in(page_n, physical_memory, page_table, &current_frame_number);
             frame_addr = consult_page_table(page_n, &is_valid, page_table);
             unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
-            printf("physical address translation %u, ", phys_addr_trans);
-            unsigned char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
-            printf("Value = %u\n", (unsigned int) ret_val);
+            printf("physical address translation %*u, ", 8, phys_addr_trans);
+            char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+            printf("Value = %*d\n", 4, (int) ret_val);
         } else {
             unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
-            printf("physical address translation %u, ", phys_addr_trans);
-            unsigned char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
-            printf("Value = %u\n", (unsigned int) ret_val);
+            printf("physical address translation %*u, ", 8,  phys_addr_trans);
+            char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+            printf("Value = %*d\n", 4, (int) ret_val);
         }
     }
-
+    printf("Number of page faults = %u\n", page_fault);
     free(logical_addresses);
     return 0;
 }
@@ -159,7 +160,7 @@ unsigned int *init_page_table(unsigned int *tbl)
     return tbl;
 }
 
-int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table)
+int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table, unsigned int *curr_frm_num)
 {
     unsigned int phys_mem_offset = current_frame_number * FRAME_SIZE;
     FILE *fd = fopen(BACKING_STORE_FILENAME, "rb");
@@ -176,7 +177,7 @@ int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * con
         return -1;
     write_to_physical_memory(buffer, phys_mem_offset, mem);
     update_page_table(page_num, phys_mem_offset, page_table);
-    update_current_frame_num();
+    update_current_frame_num(curr_frm_num);
     fclose(fd);
     return 0;
 }
@@ -193,10 +194,9 @@ void write_to_physical_memory(unsigned char *buff, unsigned int offset, unsigned
  * @brief Increment the current free frame number by 1 and don't exceed the maximum num of frame entry
  * 
  */
-void update_current_frame_num()
+void update_current_frame_num(unsigned int *curr_frm_num)
 {
-    static unsigned int current_frame_number;
-    current_frame_number = (current_frame_number + 1) % NUM_PHYS_MEM_ENTRY;
+    *curr_frm_num = ((*curr_frm_num) + 1) % NUM_PHYS_MEM_ENTRY;
 }
 
 void update_page_table(unsigned int page_num, int frame_addr, unsigned int * const page_table)
