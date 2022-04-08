@@ -6,6 +6,8 @@
 
 #define MASK_VALID_BIT      ((unsigned int)0x80000000)
 #define MASK_FRAME_NUMBER   ((unsigned int)0x7fffffff)
+#define MASK_OFFSET         (0x000000ff)
+#define MASK_PAGE_NUM       (0x0000ff00)
 #define BACKING_STORE_FILENAME      "BACKING_STORE.bin"
 #define LOGICAL_ADDRESSES_FILENAME  "addresses.txt"
 #define BUFFER_LEN                  256
@@ -19,26 +21,26 @@
 #define NUM_TLB_TABLE_ENTRY         16
 #define BACKING_STORE_SIZE          ((unsigned int)(0x10000))
 
-static unsigned int current_frame_number = 0;
+static unsigned int current_frame_number;
 static int logical_addresses_size = 1;
 static unsigned int *logical_addresses;
 static unsigned int *page_table;
 static unsigned char *physical_memory;
 
-void read_logical_addresses(const char *filename, int *const size,unsigned int *logical_addresses);
+
+void read_logical_addresses(const char *filename, int *const size,unsigned int * const logical_addresses);
 unsigned int get_page_number(int bin_val);
 unsigned int get_offset(int bin_val);
-unsigned int *init_page_table(unsigned int *tbl);
-void swap_in(unsigned int page_num);
-void write_to_physical_memory(unsigned char *buff, unsigned int offset);
+unsigned int *init_page_table(unsigned int * const tbl);
+int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table);
+void write_to_physical_memory(unsigned char *buff, unsigned int offset, unsigned char * const mem);
 void update_current_frame_num();
-void update_page_table(int page_num, int frame_num);
-unsigned int get_frame_address_from_page_table(int page_num);
-unsigned int consult_page_table(unsigned int page_num, bool *is_valid);
-void check_page_table_entry_validity(unsigned int page_num, bool *is_valid);
-unsigned char physical_memory_seek(unsigned int phys_addr);
-unsigned int generate_phys_addr(unsigned int frame_num, unsigned int offset);
-void handle_page_fault();
+void update_page_table(unsigned int page_num, int frame_num, unsigned int * const page_table);
+unsigned int get_frame_address_from_page_table(unsigned int page_num, const unsigned int * const page_table);
+unsigned int consult_page_table(unsigned int page_num, bool *is_valid, const unsigned int * const page_table);
+void check_page_table_entry_validity(unsigned int page_num, bool *is_valid, const unsigned int * const page_table);
+unsigned char physical_memory_seek(unsigned int phys_addr, const unsigned char * const mem);
+unsigned int generate_phys_addr_translation(unsigned int frame_addr, unsigned int offset);
 
 
 
@@ -46,7 +48,6 @@ int main(int argc, char **argv)
 {
     page_table = (unsigned int *) malloc(NUM_PAGE_TABLE_ENTRY*sizeof(unsigned int));
     physical_memory = (unsigned char *) malloc(BACKING_STORE_SIZE * sizeof(unsigned char));
-    FILE *fd = fopen(BACKING_STORE_FILENAME, "rb");
 
     // initialize page table
     init_page_table(page_table);
@@ -57,22 +58,30 @@ int main(int argc, char **argv)
 
     // printf("%d, %d\n", get_page_number(logical_addresses[0]), get_offset(logical_addresses[0]));
 
-    for (int i = 0; i < logical_addresses_size; i++)
+    for (int i = 0; i < 5; i++)
     {
         unsigned int page_n = get_page_number(logical_addresses[i]);
         unsigned int offset = get_offset(logical_addresses[i]);
+        printf("Logical address = %u, page number = %u, offset = %u, ", logical_addresses[i], page_n, offset);
         bool is_valid;
-        unsigned int frame_num;
-        frame_num = consult_page_table(page_n, &is_valid);
+        unsigned int frame_addr;
+        frame_addr = consult_page_table(page_n, &is_valid, page_table);
         if (is_valid == false)
         {
-            swap_in(page_n);
-
-            handle_page_fault();
+            printf("Page fault occured, reading page num %d from backing store\n", page_n);
+            swap_in(page_n, physical_memory, page_table);
+            frame_addr = consult_page_table(page_n, &is_valid, page_table);
+            unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
+            printf("physical address translation %u, ", phys_addr_trans);
+            unsigned char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+            printf("Value = %u\n", (unsigned int) ret_val);
+        } else {
+            unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
+            printf("physical address translation %u, ", phys_addr_trans);
+            unsigned char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+            printf("Value = %u\n", (unsigned int) ret_val);
         }
-        printf("%d : %d => page number = %d, offset = %d\n",i, logical_addresses[i], page_n, offset);
     }
-    return 0;
 
     free(logical_addresses);
     return 0;
@@ -134,12 +143,12 @@ unsigned int *init_page_table(unsigned int *tbl)
         tbl = (unsigned int *) calloc(NUM_PAGE_TABLE_ENTRY, sizeof(unsigned int*));
         for (int i = 0; i < NUM_PAGE_TABLE_ENTRY; i++)
         {
-            tbl[i] = 0 | VALID_PAGE_ENTRY;
+            tbl[i] = 0 | INVALID_PAGE_ENTRY;
         }
     } else {
         for (int i = 0; i < NUM_PAGE_TABLE_ENTRY; i++)
         {
-            tbl[i] = 0 | VALID_PAGE_ENTRY;
+            tbl[i] = 0 | INVALID_PAGE_ENTRY;
         }
     }
 
@@ -150,10 +159,8 @@ unsigned int *init_page_table(unsigned int *tbl)
     return tbl;
 }
 
-void swap_in(unsigned int page_num)
+int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table)
 {
-    static unsigned int current_frame_number;
-    static unsigned char *physical_memory;
     unsigned int phys_mem_offset = current_frame_number * FRAME_SIZE;
     FILE *fd = fopen(BACKING_STORE_FILENAME, "rb");
     unsigned char buffer[FRAME_SIZE];
@@ -163,22 +170,22 @@ void swap_in(unsigned int page_num)
     if (read <= 0) 
     {
         fclose(fd);
-        return;
+        return -1;
     }
-    if (!physical_memory)
-        physical_memory = (unsigned char *) malloc(BACKING_STORE_SIZE * sizeof(unsigned char));
-    write_to_physical_memory(buffer, phys_mem_offset);
-    update_page_table(page_num, phys_mem_offset);
+    if (!mem)
+        return -1;
+    write_to_physical_memory(buffer, phys_mem_offset, mem);
+    update_page_table(page_num, phys_mem_offset, page_table);
     update_current_frame_num();
     fclose(fd);
+    return 0;
 }
 
-void write_to_physical_memory(unsigned char *buff, unsigned int offset)
+void write_to_physical_memory(unsigned char *buff, unsigned int offset, unsigned char *mem)
 {
-    static unsigned char *physical_memory;
     for (int i = 0; i < FRAME_SIZE; i++)
     {
-        *(physical_memory + offset + i) = *(buff + i);
+        *(mem + offset + i) = *(buff + i);
     }
 }
 
@@ -192,44 +199,42 @@ void update_current_frame_num()
     current_frame_number = (current_frame_number + 1) % NUM_PHYS_MEM_ENTRY;
 }
 
-void update_page_table(int page_num, int frame_num)
+void update_page_table(unsigned int page_num, int frame_addr, unsigned int * const page_table)
 {
-    static unsigned int *page_table;
-    page_table[page_num] = frame_num & MASK_VALID_BIT;
+    page_table[page_num] = frame_addr | MASK_VALID_BIT;
 }
 
-unsigned int get_frame_address_from_page_table(int page_num)
+unsigned int get_frame_address_from_page_table(unsigned int page_num, const unsigned int * const page_table)
 {
-    static unsigned int *page_table;
     return page_table[page_num] & MASK_FRAME_NUMBER;
 }
 
-unsigned int consult_page_table(unsigned int page_num, bool *is_valid)
+unsigned int consult_page_table(unsigned int page_num, bool *is_valid, const unsigned int * const page_table)
 {
-    static unsigned int *page_table;
-    check_page_table_entry_validity(page_num, is_valid);
-    if (is_valid)
-        return get_frame_num_from_page_table(page_table[page_num]);
+    check_page_table_entry_validity(page_num, is_valid, page_table);
+    if ((*is_valid) == true)
+        return get_frame_address_from_page_table(page_num, page_table);
     return -1;
-    
 }
 
-void check_page_table_entry_validity(unsigned int page_num, bool *is_valid)
+void check_page_table_entry_validity(unsigned int page_num, bool *is_valid, const unsigned int * const page_table)
 {
-    static unsigned int *page_table;
-    if ((page_table[page_num] & 0x7fffffff) == MASK_VALID_BIT)
+    if ((page_table[page_num] & MASK_VALID_BIT) == MASK_VALID_BIT) {
         *is_valid = true;
-    is_valid = false;
+        return;
+    }
+    *is_valid = false;
 }
 
-unsigned char physical_memory_seek(unsigned int phys_addr)
+unsigned char physical_memory_seek(unsigned int phys_addr, const unsigned char * const mem)
 {
-    static unsigned char *physical_memory;
-    return *(physical_memory + phys_addr);
+    return *(mem + phys_addr);
     
 }
 
-unsigned int generate_phys_addr(unsigned int frame_num, unsigned int offset)
+unsigned int generate_phys_addr_translation(unsigned int frame_addr, unsigned int offset)
 {
-    return frame_num * FRAME_SIZE
+    if (offset > FRAME_SIZE)
+        return -1;
+    return frame_addr + offset;
 }
