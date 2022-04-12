@@ -72,9 +72,10 @@ int main(int argc, char **argv)
         tlb_entry_t *tlb_result = look_up(g_tlb, page_n);
         if (tlb_result == NULL) {
             // TLB Miss
-
+            
         } else {
             // TLB Hit
+            tlb_hit_rate++;
 
         }
 
