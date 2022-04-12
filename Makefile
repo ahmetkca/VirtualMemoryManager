@@ -1,5 +1,5 @@
 all:
-	clang -g -Wall -Wextra -o main.out main.c
+	clang -g -Wall -Wextra -o main.out main.c tlb.c
 
 clean:
-	rm -f main.out
+	rm -f *.out main test01 test02

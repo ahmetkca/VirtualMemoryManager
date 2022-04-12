@@ -9,6 +9,7 @@
 #define MASK_FRAME_NUMBER   ((unsigned int)0x7fffffff)
 #define MASK_OFFSET         (0x000000ff)
 #define MASK_PAGE_NUM       (0x0000ff00)
+#define OUTPUT_FILENAME             ""
 #define BACKING_STORE_FILENAME      "BACKING_STORE.bin"
 #define LOGICAL_ADDRESSES_FILENAME  "addresses.txt"
 #define BUFFER_LEN                  256
@@ -69,34 +70,43 @@ int main(int argc, char **argv)
         printf("Virtual address = %*u, page number = %*u, offset = %*u, ", 4, logical_addresses[i], 4, page_n, 4, offset);
         bool is_valid;
         unsigned int frame_addr;
+
+
         tlb_entry_t *tlb_result = look_up(g_tlb, page_n);
-        if (tlb_result == NULL) {
-            // TLB Miss
-            
-        } else {
-            // TLB Hit
-            tlb_hit_rate++;
-
-        }
-
-        frame_addr = consult_page_table(page_n, &is_valid, page_table);
-        if (is_valid == false)
+        if (tlb_result == NULL)     // TLB Miss 
         {
-            page_fault++;
-            swap_in(page_n, physical_memory, page_table, &current_frame_number);
             frame_addr = consult_page_table(page_n, &is_valid, page_table);
-            unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
-            printf("physical address translation %*u, ", 8, phys_addr_trans);
-            char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
-            printf("Value = %*d\n", 4, (int) ret_val);
-        } else {
+            if (is_valid == false)
+            {
+                page_fault++;
+                swap_in(page_n, physical_memory, page_table, &current_frame_number);
+                frame_addr = consult_page_table(page_n, &is_valid, page_table);
+                unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
+                printf("physical address translation %*u, ", 8, phys_addr_trans);
+                char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+                printf("Value = %*d\n", 4, (int) ret_val);
+            } else {
+                unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
+                printf("physical address translation %*u, ", 8,  phys_addr_trans);
+                char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
+                printf("Value = %*d\n", 4, (int) ret_val);
+            }
+            enqueue(g_tlb, page_n, frame_addr);
+        } 
+        else  // TLB Hit
+        {
+            tlb_hit_rate++;
+            unsigned int frame_addr = get_frame_addr(tlb_result);
             unsigned int phys_addr_trans = generate_phys_addr_translation(frame_addr, offset);
             printf("physical address translation %*u, ", 8,  phys_addr_trans);
             char ret_val = physical_memory_seek(phys_addr_trans, physical_memory);
             printf("Value = %*d\n", 4, (int) ret_val);
         }
     }
-    printf("Number of page faults = %u\n", page_fault);
+    printf("Number of Page Faults = %u\n", page_fault);
+    printf("Page Fault rate = %0.3f \n", (float)(((int)page_fault) / (float) logical_addresses_size));
+    printf("Number of TLB Hits = %u\n", tlb_hit_rate);
+    printf("TLB Hit rate = %0.3f\n", (float)(((int)tlb_hit_rate) / (float) logical_addresses_size));
     free(logical_addresses);
     return 0;
 }
