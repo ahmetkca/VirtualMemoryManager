@@ -1,2 +1,7 @@
 /.vscode
 /main
+*.out
+main
+test_tlb
+test01
+test02
