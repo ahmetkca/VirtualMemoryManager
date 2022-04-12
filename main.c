@@ -47,7 +47,6 @@ unsigned char physical_memory_seek(unsigned int phys_addr, const unsigned char *
 unsigned int generate_phys_addr_translation(unsigned int frame_addr, unsigned int offset);
 
 
-
 int main(int argc, char **argv)
 {
     g_tlb = init_tlb();
@@ -103,6 +102,8 @@ int main(int argc, char **argv)
             printf("Value = %*d\n", 4, (int) ret_val);
         }
     }
+
+    printf("Number of translated addresses = %u\n", logical_addresses_size);
     printf("Number of Page Faults = %u\n", page_fault);
     printf("Page Fault rate = %0.3f \n", (float)(((int)page_fault) / (float) logical_addresses_size));
     printf("Number of TLB Hits = %u\n", tlb_hit_rate);
@@ -128,11 +129,16 @@ void read_logical_addresses(const char *filename, int *const size, unsigned int 
     logical_addresses = arr;
 }
 
+/**
+ * @brief                   Extracts page number from 32-bit unsigned integer (logical address)
+ *                          00000000 00000000 (00000000) 00000000
+ * 
+ * @param bin_val           Virtual/logical address in the form of 32-bit unsigned integer
+ * @return unsigned int     page number max 8-bit (255)
+ */
 unsigned int get_page_number(int bin_val)
 {
     /*
-     *  logical address binary format
-     *  32-bit integer numbers represents logical addresses
      *  00000000 00000000 (00000000) 00000000
      *                     page num
      */
@@ -140,11 +146,16 @@ unsigned int get_page_number(int bin_val)
     // shift 8 bits to the right and mask the first 8 bits
     return ((bin_val >> 8) & 0xff);
 }
+
+/**
+ * @brief               Extract offset number (8-bit (max 255)) from virtual/logical address by masking last 8 bit.
+ * 
+ * @param bin_val       Virtual/logical address (32-bit unsigned integer)
+ * @return              offset number (32-bit unsigned integer but max val is 255 (8-bits))
+ */
 unsigned int get_offset(int bin_val)
 {
     /*
-     *  logical address binary format
-     *  32-bit integer numbers represents logical addresses
      *  00000000 00000000 00000000 (00000000)
      *                              offset
      */                
@@ -153,6 +164,13 @@ unsigned int get_offset(int bin_val)
     return (bin_val & 0xff);
 }
 
+/**
+ * @brief               Initialize the page table, every entry's most significant bit is set to INVALID
+ *                      and rest of bits are set to 0 to inditicate empty page table entry
+ * 
+ * @param tbl               page table struct
+ * @return unsigned int*    it returns pointer to the initialized page table struct
+ */
 unsigned int *init_page_table(unsigned int *tbl)
 {
     /*
@@ -183,6 +201,18 @@ unsigned int *init_page_table(unsigned int *tbl)
     return tbl;
 }
 
+/**
+ * @brief               It handles the page fault that occurs when a cpu requests a frame address from page table but
+ *                      the given page number is not present in the page table. The page corresponds to the page number
+ *                      should bring in from Secondary Storage/HDD/Backing Store into the physical memory (ex. RAM).
+ *                      Page table should be updated with the newly brought in frame address.
+ * 
+ * @param page_num      Page number associated with the frame address
+ * @param mem           Implementation of physical memory
+ * @param page_table    Implementation of page table
+ * @param curr_frm_num  Current available frame number 
+ * @return int          It returns 0  to indicate swap in opreation was successful, and -1 otherwise.
+ */
 int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * const page_table, unsigned int *curr_frm_num)
 {
     unsigned int phys_mem_offset = current_frame_number * FRAME_SIZE;
@@ -205,6 +235,14 @@ int swap_in(unsigned int page_num, unsigned char * const mem, unsigned int * con
     return 0;
 }
 
+/**
+ * @brief           Writes a char buffer that has the length FRAME_SIZE to the given physical memory,
+ *                  starting from given offset.
+ * 
+ * @param buff      character array length of FRAME_SIZE
+ * @param offset    number that indicates the starting position of the write operation in the physical memory
+ * @param mem       Implementation/Representation of the physical memory (ex. 4096 bytes long unsigned char array)
+ */
 void write_to_physical_memory(unsigned char *buff, unsigned int offset, unsigned char *mem)
 {
     for (int i = 0; i < FRAME_SIZE; i++)
@@ -222,16 +260,40 @@ void update_current_frame_num(unsigned int *curr_frm_num)
     *curr_frm_num = ((*curr_frm_num) + 1) % NUM_PHYS_MEM_ENTRY;
 }
 
+/**
+ * @brief               Update the page table entry associated with the provided page number
+ *                      with the given frame address (starting position of the frame in the physical memory)
+ * 
+ * @param page_num      Virtual page number that will be mapped to corresponding frame address
+ * @param frame_addr    Starting position of the frame in the physical memory
+ * @param page_table    Implementation of the page table (ex. array of unsigned integer with each entry's MSB indicates valid-invalid)
+ */
 void update_page_table(unsigned int page_num, int frame_addr, unsigned int * const page_table)
 {
     page_table[page_num] = frame_addr | MASK_VALID_BIT;
 }
 
+/**
+ * @brief               Get the frame address from page table with the provided page number (index)
+ * 
+ * @param page_num      Page number extracted from virtual/logical address in the form of unsigned integer, MSB is discarded.
+ * @param page_table    Implementation of the page table (ex. array of unsigned integer with each entry's MSB indicates valid-invalid)
+ * @return unsigned int It returns the frame address in the form of unsigned integer MSB is discarded since it it used for invalid-valid bit
+ */
 unsigned int get_frame_address_from_page_table(unsigned int page_num, const unsigned int * const page_table)
 {
     return page_table[page_num] & MASK_FRAME_NUMBER;
 }
 
+/**
+ * @brief               It is a look up function to check if the given page number is valid or invalid in the page table
+ *                      , then return the frame address if valid, or page fault occurs otherwise.
+ * 
+ * @param page_num      A unsigned integer extracted from Virtual/logical address, MSB is discarded.
+ * @param is_valid      A integer to store if the look up was valid or invalid.
+ * @param page_table    Implementation of the page table (ex. array of unsigned integer with each entry's MSB indicates valid-invalid)
+ * @return unsigned int Frame address corresponding to the provided page number.
+ */
 unsigned int consult_page_table(unsigned int page_num, bool *is_valid, const unsigned int * const page_table)
 {
     check_page_table_entry_validity(page_num, is_valid, page_table);
@@ -240,6 +302,14 @@ unsigned int consult_page_table(unsigned int page_num, bool *is_valid, const uns
     return -1;
 }
 
+/**
+ * @brief               Check if the provided page number is valid (which means the page is in the physical memory and no page fault)
+ *                      or invalid (which means the requested logical address is not mapped to physical address yet and swap in operation might be needed)
+ *   
+ * @param page_num      A unsigned integer extracted from virtual/logical address max 8-bit in length.
+ * @param is_valid      A integer var to store the validity of the function, 1 indicates requested page is in hte physical memory, 0 indicates requested page is not in the physical memory
+ * @param page_table    Implementation of the page table (ex. array of unsigned integer with each entry's MSB indicates valid-invalid)
+ */
 void check_page_table_entry_validity(unsigned int page_num, bool *is_valid, const unsigned int * const page_table)
 {
     if ((page_table[page_num] & MASK_VALID_BIT) == MASK_VALID_BIT) {
@@ -249,12 +319,45 @@ void check_page_table_entry_validity(unsigned int page_num, bool *is_valid, cons
     *is_valid = false;
 }
 
+/**
+ * @brief                   Get the 1-byte value at the given physical address (frame address + offset) in the physical memory.
+ * 
+ * @param phys_addr         Physical address equals to frame address (starting position of the frame) plus offset.
+ * @param mem               Physical memory (ex. unsigned char array length 4096 bytes (1 char is 1 bytes)).
+ * @return unsigned char    1-byte value at the frame with offset applied.
+ *                          
+ *                              ┌─────────────┐
+ *                              │             │
+ *                              │             │
+ *                              │             │
+ *                              │             │   Frame 1
+ *                              │             │
+ *                              │             │
+ *                              │             │
+ *    Frame Address ────────►xxx├─────────────┤
+ *                           x  │             │
+ *                    Offset x  │             │
+ *                           x  │             │
+ * (frame addr + offset)     x  │             │   Frame 2
+ *  Physical Address ───────►xxx│ ── ── ── ── │
+ *                              │             │
+ *                              │             │
+ *                              └─────────────┘ 
+ */
 unsigned char physical_memory_seek(unsigned int phys_addr, const unsigned char * const mem)
 {
     return *(mem + phys_addr);
     
 }
 
+
+/**
+ * @brief               Adds the provided offset (with in FRAME_SIZE range) to the given Frame address
+ * 
+ * @param frame_addr    Mapped unsigned integer that indicates the starting position of the frame (associated with the page in the virtual space) in the physical memory.
+ * @param offset        A unsigned integer represents a offset within given frame range (provided frame address + FRAME_SIZE)
+ * @return unsigned int that represents a 1-byte value within the frame which resides in the physical memory.
+ */
 unsigned int generate_phys_addr_translation(unsigned int frame_addr, unsigned int offset)
 {
     if (offset > FRAME_SIZE)
