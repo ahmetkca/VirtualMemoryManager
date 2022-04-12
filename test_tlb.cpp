@@ -84,37 +84,3 @@ TEST(tlb, tlb_dequeue_drop)
     ASSERT_TRUE(g_tlb->size == (TLB_MAX_NUM_ENTRY - 2));
     ASSERT_TRUE(get_page_num(g_tlb->head) == 0x8);
 }
-
-// int main(int argc, char **argv) {
-//     testing::InitGoogleTest(&argc, argv);
-//     return RUN_ALL_TESTS();
-// }
-// int main() 
-// {
-//     srand(time(NULL));
-//     g_tlb = init_tlb();
-//     if (!g_tlb) {
-//         printf("global tlb is not initialized\n");
-//         return 1;
-//     }
-    
-//     tlb_entry_t *enq = enqueue(g_tlb, 0x110, 0xABC);
-//     tlb_entry_t *enq1 = enqueue(g_tlb, 0x001, 0xBFC);
-//     tlb_entry_t *enq2 = enqueue(g_tlb, 0x101, 0xCDD);
-//     unsigned int lookup_num = 0x0011;
-//     tlb_entry_t *res = look_up(g_tlb, lookup_num);
-//     if (!res) {
-//         printf("Error: %04x not found\n", lookup_num);
-//         return 0;
-//     }
-//     printf("TLB entry 0x%04x has frame address 0x%04x\n", get_page_num(res), get_frame_addr(res));
-//     // for (int i = 0; i < TLB_MAX_NUM_ENTRY; i++)
-//     // {
-//     //     unsigned int page_num   = i * (rand() % 0x100);
-//     //     unsigned int frame_addr = i * (rand() % 0x200);
-//     //     enqueue(g_tlb, page_num, frame_addr);
-//     // }
-
-
-//     return 0;
-// }

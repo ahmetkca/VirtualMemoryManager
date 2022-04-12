@@ -17,11 +17,11 @@ tlb_t *init_tlb()
 tlb_entry_t *enqueue(tlb_t *tlb, unsigned int page_num, unsigned int frame_addr)
 {
     if (!tlb) {
-        printf("tlb is not initialized.\n");
+        // fprintf(stderr, "tlb is not initialized.\n");
         return NULL;
     }
     if (tlb->size >= TLB_MAX_NUM_ENTRY) {
-        printf("Size is greater than or equal to MAX Entry.\n");
+        // fprintf(stderr, "Size is greater than or equal to MAX Entry.\n");
         tlb_entry_t *d = dequeue(tlb);
         free(d);
     }
