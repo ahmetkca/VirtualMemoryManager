@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include "tlb.h"
 
 
 #define MASK_VALID_BIT      ((unsigned int)0x80000000)
@@ -21,6 +22,7 @@
 #define NUM_TLB_TABLE_ENTRY         16
 #define BACKING_STORE_SIZE          ((unsigned int)(0x10000))
 
+static unsigned int tlb_hit_rate = 0;
 static unsigned int page_fault = 0;
 static unsigned int current_frame_number = 0;
 static int logical_addresses_size = 1;
@@ -47,6 +49,7 @@ unsigned int generate_phys_addr_translation(unsigned int frame_addr, unsigned in
 
 int main(int argc, char **argv)
 {
+    g_tlb = init_tlb();
     page_table = (unsigned int *) malloc(NUM_PAGE_TABLE_ENTRY*sizeof(unsigned int));
     physical_memory = (unsigned char *) malloc(BACKING_STORE_SIZE * sizeof(unsigned char));
 
@@ -66,6 +69,16 @@ int main(int argc, char **argv)
         printf("Virtual address = %*u, page number = %*u, offset = %*u, ", 4, logical_addresses[i], 4, page_n, 4, offset);
         bool is_valid;
         unsigned int frame_addr;
+        tlb_entry_t *tlb_result = look_up(g_tlb, page_n);
+        if (tlb_result == NULL) {
+            // TLB Miss
+            
+        } else {
+            // TLB Hit
+            tlb_hit_rate++;
+
+        }
+
         frame_addr = consult_page_table(page_n, &is_valid, page_table);
         if (is_valid == false)
         {
