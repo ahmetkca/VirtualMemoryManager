@@ -2,23 +2,29 @@
 // Created by ahmet on 2022-04-09.
 //
 
+#include <stdlib.h>
+#include <stdio.h>
 #include "tlb.h"
 
-tlb_t *init_tlb(tlb_t *tlb)
+tlb_t *init_tlb()
 {
-    tlb_t *in_func;
-    if (!tlb)
-        in_func = (tlb_t *) malloc(sizeof(tlb_t));
-    in_func->size = 0;
-    in_func->head = NULL;
-    g_tlb = in_func;
-    return in_func;
+    tlb_t *tlb = (tlb_t *) malloc(sizeof(tlb_t));
+    tlb->size = 0;
+    tlb->head = NULL;
+    return tlb;
 }
 
 tlb_entry_t *enqueue(tlb_t *tlb, unsigned int page_num, unsigned int frame_addr)
 {
-    if (tlb->size > TLB_MAX_NUM_ENTRY)
+    if (!tlb) {
+        printf("tlb is not initialized.\n");
         return NULL;
+    }
+    if (tlb->size >= TLB_MAX_NUM_ENTRY) {
+        printf("Size is greater than or equal to MAX Entry.\n");
+        tlb_entry_t *d = dequeue(tlb);
+        free(d);
+    }
     tlb_entry_t *entry = (tlb_entry_t *) malloc(sizeof(tlb_entry_t));
     entry->data = ((page_num << 0x10) & MASK_PAGE_NUM) | (frame_addr & MASK_FRAME_ADDR);
     entry->next = NULL;
@@ -60,7 +66,7 @@ tlb_entry_t *dequeue(tlb_t *tlb)
 tlb_entry_t *look_up(tlb_t *tlb, unsigned int page_num)
 {
     tlb_entry_t *curr = tlb->head;
-    while (curr && curr->next)
+    while (curr)
     {
         if (get_page_num(curr) == page_num)
             return curr;
